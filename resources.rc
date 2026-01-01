@@ -1,0 +1,7 @@
+// Resource file for embedded sounds
+#define IDR_SOUND_ON   101
+#define IDR_SOUND_OFF  102
+
+IDR_SOUND_ON  WAV  "assets/sounds/func_on.wav"
+IDR_SOUND_OFF WAV  "assets/sounds/func_off.wav"
+

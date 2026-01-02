@@ -6,6 +6,33 @@
 #include "../modules/watermark/watermark.h"
 #include "../hud/hud.h"
 #include "../config/config.h"
+#include "../modules/il2cpp/il2cpp.h"
+#include "../modules/esp/esp.h"
+#include "../modules/noclip/noclip.h"
+#include "../modules/invisible/invisible.h"
+#include "../modules/escapes/escapes.h"
+#include "../modules/itemspawner/itemspawner.h"
+#include "../utils/logger.h"
+
+// IL2CPP callback implementations
+namespace CubixDLC
+{
+    namespace IL2CPP
+    {
+        namespace Internal
+        {
+            void OnUpdateCallback()
+            {
+                ModuleManager::GetInstance().UpdateAll();
+            }
+
+            void OnLateUpdateCallback()
+            {
+                ModuleManager::GetInstance().LateUpdateAll();
+            }
+        }
+    }
+}
 
 // Forward declare
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -41,7 +68,9 @@ LRESULT WINAPI HookedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 // Hook implementations
 HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags)
 {
-    if (!g_ImGuiInitialized)
+    __try
+    {
+        if (!g_ImGuiInitialized)
     {
         // Get device from swapchain
         if (SUCCEEDED(pSwapChain->GetDevice(__uuidof(ID3D11Device), (void**)&g_pd3dDevice)))
@@ -124,11 +153,63 @@ HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
         }
         prevKeyState = currentKeyState;
         
+        // Update ESP module (if enabled)
+        __try
+        {
+            auto* espModule = CubixDLC::ESPEnemy::GetModule();
+            if (espModule && espModule->GetSettings().enabled)
+            {
+                espModule->OnLateUpdate();
+            }
+        }
+        __except(EXCEPTION_EXECUTE_HANDLER)
+        {
+            LOG_ERROR("Exception in ESP OnLateUpdate: 0x%08X", GetExceptionCode());
+        }
+        
         // Render watermark (always visible, pass menu state)
-        RenderWatermark(g_ShowMenu);
+        __try
+        {
+            RenderWatermark(g_ShowMenu);
+        }
+        __except(EXCEPTION_EXECUTE_HANDLER)
+        {
+            LOG_ERROR("Exception in RenderWatermark: 0x%08X", GetExceptionCode());
+        }
+        
+        // Render ESP
+        __try
+        {
+            auto* espModule = CubixDLC::ESPEnemy::GetModule();
+            if (espModule)
+            {
+                espModule->Render();
+            }
+        }
+        __except(EXCEPTION_EXECUTE_HANDLER)
+        {
+            LOG_ERROR("Exception in ESP Render: 0x%08X", GetExceptionCode());
+        }
         
         // Render HUD menu
-        RenderHUD();
+        __try
+        {
+            RenderHUD();
+        }
+        __except(EXCEPTION_EXECUTE_HANDLER)
+        {
+            LOG_ERROR("Exception in RenderHUD: 0x%08X", GetExceptionCode());
+        }
+        
+        // Render debug console (always visible if enabled)
+        __try
+        {
+            RenderDebugConsole();
+        }
+        __except(EXCEPTION_EXECUTE_HANDLER)
+        {
+            // Don't log console errors to avoid recursion
+        }
         
         // Render ImGui
         ImGui::Render();
@@ -146,6 +227,12 @@ HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
         g_pd3dDeviceContext->OMSetRenderTargets(1, &pOldRTV, pOldDSV);
         if (pOldRTV) pOldRTV->Release();
         if (pOldDSV) pOldDSV->Release();
+    }
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER)
+    {
+        LOG_ERROR("Exception in hkPresent: 0x%08X", GetExceptionCode());
+        // Continue to original function
     }
     
     return oPresent(pSwapChain, SyncInterval, Flags);
@@ -181,39 +268,77 @@ HRESULT __stdcall hkResizeBuffers(IDXGISwapChain* pSwapChain, UINT BufferCount, 
 // Thread function to initialize hooks
 DWORD WINAPI InitHookThread(LPVOID)
 {
+    // Initialize Logger FIRST, before anything else
+    __try
+    {
+        if (!CubixDLC::Logger::Logger::GetInstance().Initialize())
+        {
+            // Logger initialization failed, but continue anyway
+            // We can't log this, but at least we tried
+        }
+        else
+        {
+            LOG_INFO("=== CubixDLC DLL Loaded ===");
+            LOG_INFO("Initializing hook thread...");
+        }
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER)
+    {
+        // Exception during logger initialization - can't log it
+        // Continue anyway
+    }
+    
     // Wait a bit for the game to initialize
     Sleep(1000);
+    LOG_INFO("Wait completed, initializing MinHook...");
     
     // Initialize MinHook
-    if (MH_Initialize() != MH_OK)
+    __try
+    {
+        if (MH_Initialize() != MH_OK)
+        {
+            LOG_ERROR("Failed to initialize MinHook");
+            return 1;
+        }
+        LOG_INFO("MinHook initialized");
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER)
+    {
+        LOG_ERROR("Exception during MinHook initialization: 0x%08X", GetExceptionCode());
         return 1;
+    }
     
     // Create dummy device and swapchain to get vtable
-    // Create a temporary window for the dummy swapchain
-    WNDCLASSEXW wc = {};
-    wc.cbSize = sizeof(WNDCLASSEXW);
-    wc.style = CS_CLASSDC;
-    wc.lpfnWndProc = DefWindowProc;
-    wc.hInstance = GetModuleHandle(NULL);
-    wc.lpszClassName = L"TempWindowClass";
-    
-    if (!RegisterClassExW(&wc))
+    __try
     {
-        MH_Uninitialize();
-        return 1;
-    }
-    
-    HWND hwnd = CreateWindowW(wc.lpszClassName, L"TempWindow", WS_OVERLAPPEDWINDOW, 0, 0, 100, 100, NULL, NULL, wc.hInstance, NULL);
-    if (!hwnd)
-    {
-        UnregisterClassW(wc.lpszClassName, wc.hInstance);
-        MH_Uninitialize();
-        return 1;
-    }
-    
-    D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_0;
-    DXGI_SWAP_CHAIN_DESC sd = {};
-    sd.BufferCount = 1;
+        LOG_INFO("Creating dummy D3D11 device...");
+        // Create a temporary window for the dummy swapchain
+        WNDCLASSEXW wc = {};
+        wc.cbSize = sizeof(WNDCLASSEXW);
+        wc.style = CS_CLASSDC;
+        wc.lpfnWndProc = DefWindowProc;
+        wc.hInstance = GetModuleHandle(NULL);
+        wc.lpszClassName = L"TempWindowClass";
+        
+        if (!RegisterClassExW(&wc))
+        {
+            LOG_ERROR("Failed to register window class");
+            MH_Uninitialize();
+            return 1;
+        }
+        
+        HWND hwnd = CreateWindowW(wc.lpszClassName, L"TempWindow", WS_OVERLAPPEDWINDOW, 0, 0, 100, 100, NULL, NULL, wc.hInstance, NULL);
+        if (!hwnd)
+        {
+            LOG_ERROR("Failed to create window");
+            UnregisterClassW(wc.lpszClassName, wc.hInstance);
+            MH_Uninitialize();
+            return 1;
+        }
+        
+        D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_0;
+        DXGI_SWAP_CHAIN_DESC sd = {};
+        sd.BufferCount = 1;
     sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
     sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     sd.OutputWindow = hwnd;
@@ -221,77 +346,121 @@ DWORD WINAPI InitHookThread(LPVOID)
     sd.Windowed = TRUE;
     sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
     
-    ID3D11Device* pDummyDevice = nullptr;
-    ID3D11DeviceContext* pDummyContext = nullptr;
-    IDXGISwapChain* pDummySwapChain = nullptr;
-    
-    HRESULT hr = D3D11CreateDeviceAndSwapChain(
-        nullptr,
-        D3D_DRIVER_TYPE_HARDWARE,
-        nullptr,
-        0,
-        &featureLevel,
-        1,
-        D3D11_SDK_VERSION,
-        &sd,
-        &pDummySwapChain,
-        &pDummyDevice,
-        nullptr,
-        &pDummyContext);
-    
-    if (FAILED(hr))
-    {
+        ID3D11Device* pDummyDevice = nullptr;
+        ID3D11DeviceContext* pDummyContext = nullptr;
+        IDXGISwapChain* pDummySwapChain = nullptr;
+        
+        HRESULT hr = D3D11CreateDeviceAndSwapChain(
+            nullptr,
+            D3D_DRIVER_TYPE_HARDWARE,
+            nullptr,
+            0,
+            &featureLevel,
+            1,
+            D3D11_SDK_VERSION,
+            &sd,
+            &pDummySwapChain,
+            &pDummyDevice,
+            nullptr,
+            &pDummyContext);
+        
+        if (FAILED(hr))
+        {
+            LOG_ERROR("Failed to create D3D11 device: 0x%08X", hr);
+            DestroyWindow(hwnd);
+            UnregisterClassW(wc.lpszClassName, wc.hInstance);
+            MH_Uninitialize();
+            return 1;
+        }
+        
+        LOG_INFO("D3D11 dummy device created successfully");
+        
+        // Get vtable
+        void** pVTable = *(void***)pDummySwapChain;
+        
+        // Get function pointers from vtable
+        void* pPresent = pVTable[8];      // Present index
+        void* pResizeBuffers = pVTable[13]; // ResizeBuffers index
+        
+        LOG_INFO("Got function pointers from vtable");
+        
+        // Cleanup dummy objects
+        pDummyContext->Release();
+        pDummyDevice->Release();
+        pDummySwapChain->Release();
         DestroyWindow(hwnd);
         UnregisterClassW(wc.lpszClassName, wc.hInstance);
-        MH_Uninitialize();
-        return 1;
+        
+        LOG_INFO("Cleaned up dummy D3D11 objects");
+        
+        // Create hooks
+        if (MH_CreateHook(pPresent, &hkPresent, (LPVOID*)&oPresent) != MH_OK)
+        {
+            LOG_ERROR("Failed to create Present hook");
+            MH_Uninitialize();
+            return 1;
+        }
+        LOG_INFO("Created Present hook");
+        
+        if (MH_CreateHook(pResizeBuffers, &hkResizeBuffers, (LPVOID*)&oResizeBuffers) != MH_OK)
+        {
+            LOG_ERROR("Failed to create ResizeBuffers hook");
+            MH_Uninitialize();
+            return 1;
+        }
+        LOG_INFO("Created ResizeBuffers hook");
+        
+        // Enable hooks
+        if (MH_EnableHook(MH_ALL_HOOKS) != MH_OK)
+        {
+            LOG_ERROR("Failed to enable hooks");
+            MH_Uninitialize();
+            return 1;
+        }
+        LOG_INFO("Hooks enabled successfully");
     }
-    
-    // Get vtable
-    void** pVTable = *(void***)pDummySwapChain;
-    
-    // Get function pointers from vtable
-    void* pPresent = pVTable[8];      // Present index
-    void* pResizeBuffers = pVTable[13]; // ResizeBuffers index
-    
-    // Cleanup dummy objects
-    pDummyContext->Release();
-    pDummyDevice->Release();
-    pDummySwapChain->Release();
-    DestroyWindow(hwnd);
-    UnregisterClassW(wc.lpszClassName, wc.hInstance);
-    
-    // Create hooks
-    if (MH_CreateHook(pPresent, &hkPresent, (LPVOID*)&oPresent) != MH_OK)
+    __except(EXCEPTION_EXECUTE_HANDLER)
     {
+        LOG_ERROR("Exception during dummy device creation: 0x%08X", GetExceptionCode());
         MH_Uninitialize();
         return 1;
     }
     
-    if (MH_CreateHook(pResizeBuffers, &hkResizeBuffers, (LPVOID*)&oResizeBuffers) != MH_OK)
+    LOG_INFO("Hook thread initialized successfully");
+    
+    // Initialize IL2CPP (wait for game to fully load)
+    LOG_INFO("Waiting 2 seconds for game to initialize...");
+    Sleep(2000);
+    
+    __try
     {
-        MH_Uninitialize();
-        return 1;
+        LOG_INFO("Initializing IL2CPP...");
+        CubixDLC::IL2CPP::Initialize(true, 60);
+        LOG_INFO("IL2CPP initialized successfully");
     }
-    
-    // Enable hooks
-    if (MH_EnableHook(MH_ALL_HOOKS) != MH_OK)
+    __except(EXCEPTION_EXECUTE_HANDLER)
     {
-        MH_Uninitialize();
-        return 1;
+        LOG_ERROR("Exception during IL2CPP initialization: 0x%08X", GetExceptionCode());
+        // Continue anyway - maybe IL2CPP will work later
     }
     
+    LOG_INFO("InitHookThread completed");
     return 0;
 }
 
 // Cleanup
 void CleanupRender()
 {
+    LOG_INFO("Cleaning up render...");
+    
     // Release cursor
     ClipCursor(nullptr);
     
     // Save config before shutdown
     SaveCategoriesToConfig();
+    
+    // Shutdown IL2CPP
+    CubixDLC::IL2CPP::Shutdown();
     
     if (g_ImGuiInitialized)
     {

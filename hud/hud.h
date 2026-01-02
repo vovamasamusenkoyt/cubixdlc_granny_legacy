@@ -10,5 +10,8 @@ void PlaySoundResource(int resourceId);
 // Render HUD menu
 void RenderHUD();
 
+// Render debug console
+void RenderDebugConsole();
+
 // Save categories to config
 void SaveCategoriesToConfig();

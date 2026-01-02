@@ -16,12 +16,20 @@ add_library(dx11_hook SHARED
     
     # Modules
     modules/watermark/watermark.cpp
+    modules/esp/esp.cpp
+    modules/noclip/noclip.cpp
+    modules/invisible/invisible.cpp
+    modules/escapes/escapes.cpp
+    modules/itemspawner/itemspawner.cpp
     
     # HUD module
     hud/hud.cpp
     
     # Config module
     config/config.cpp
+    
+    # Utils
+    utils/logger.cpp
     
     # Resources
     resources.rc
@@ -53,6 +61,7 @@ target_include_directories(dx11_hook PRIVATE
     deps/minhook/include
     deps/minhook/src
     deps/minhook/src/hde
+    deps/IL2CPP_Resolver
 )
 
 # Windows-specific settings
@@ -92,6 +101,14 @@ if(MSVC)
     # Link MinHook statically
     target_compile_definitions(dx11_hook PRIVATE
         _CRT_SECURE_NO_WARNINGS
+    )
+    
+    # Suppress duplicate symbol errors from IL2CPP_Resolver (header-only library issue)
+    # /FORCE:MULTIPLE - force link with duplicates
+    # /IGNORE:4006 - ignore duplicate symbol warning
+    # /IGNORE:4088 - ignore "image may not run" warning
+    set_target_properties(dx11_hook PROPERTIES
+        LINK_FLAGS "/FORCE:MULTIPLE /IGNORE:4006 /IGNORE:4088"
     )
 endif()
 

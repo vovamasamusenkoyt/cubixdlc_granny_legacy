@@ -150,6 +150,8 @@ bool ConfigManager::LoadConfig()
                         mod->enabled = (value == "1" || value == "true");
                     else if (settingName == "expanded")
                         mod->expanded = (value == "1" || value == "true");
+                    else if (settingName == "keybind")
+                        mod->keybind = atoi(value.c_str());
                     else if (settingName.find("setting_") == 0)
                     {
                         // Setting index
@@ -201,6 +203,7 @@ bool ConfigManager::SaveConfig()
         {
             file << "Module_" << mod.name << "_enabled=" << (mod.enabled ? "1" : "0") << "\n";
             file << "Module_" << mod.name << "_expanded=" << (mod.expanded ? "1" : "0") << "\n";
+            file << "Module_" << mod.name << "_keybind=" << mod.keybind << "\n";
             
             for (size_t i = 0; i < mod.settings.size(); i++)
             {

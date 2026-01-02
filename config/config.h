@@ -9,6 +9,9 @@ struct ModuleState {
     bool enabled;
     bool expanded;
     std::vector<bool> settings; // For checkbox settings
+    int keybind;  // Virtual key code, 0 = no keybind
+    
+    ModuleState() : enabled(false), expanded(false), keybind(0) {}
 };
 
 // Category state

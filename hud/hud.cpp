@@ -2,6 +2,7 @@
 #include "../deps/imgui/imgui.h"
 #include "../hook_render/hook_render.h"
 #include "../modules/watermark/watermark.h"
+#include "../modules/console/console.h"
 #include <cmath>
 #include <vector>
 #include <string>
@@ -104,6 +105,7 @@ void InitializeCategories()
     movement.modules.push_back(Module("Speedhack"));
     movement.modules.push_back(Module("Fly"));
     movement.modules.push_back(Module("No Fall"));
+    movement.modules.push_back(Module("NoClip"));
     g_Categories.push_back(movement);
     
     // Render category

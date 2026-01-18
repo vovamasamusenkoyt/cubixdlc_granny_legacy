@@ -16,6 +16,7 @@ add_library(dx11_hook SHARED
     
     # Modules
     modules/watermark/watermark.cpp
+    modules/console/console.cpp
     
     # HUD module
     hud/hud.cpp
@@ -50,6 +51,7 @@ target_include_directories(dx11_hook PRIVATE
     deps/minhook/include
     deps/minhook/src
     deps/minhook/src/hde
+    deps/IL2CPP_Resolver
 )
 
 # Windows-specific settings

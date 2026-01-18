@@ -4,6 +4,8 @@
 #include "../deps/imgui/backends/imgui_impl_dx11.h"
 #include "../deps/imgui/backends/imgui_impl_win32.h"
 #include "../modules/watermark/watermark.h"
+#include "../modules/console/console.h"
+#include "../modules/il2cpp_api/IL2CPP_API.hpp"
 #include "../hud/hud.h"
 
 // Forward declare
@@ -64,6 +66,12 @@ HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
             ImGui_ImplWin32_Init(g_hWnd);
             ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
             
+            // Initialize console after ImGui is ready
+            Console::Initialize();
+            
+            // Initialize IL2CPP API (writes to console)
+            IL2CPP_API::Initialize();
+            
             // Hook WndProc to handle window messages (only once)
             if (!g_OriginalWndProc)
             {
@@ -112,11 +120,17 @@ HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
         }
         prevKeyState = currentKeyState;
         
+        // Update console
+        Console::Update();
+        
         // Render watermark (always visible)
         RenderWatermark();
         
         // Render HUD menu
         RenderHUD();
+        
+        // Render console (always visible, independent of menu)
+        Console::Render();
         
         // Render ImGui
         ImGui::Render();
@@ -174,7 +188,9 @@ DWORD WINAPI InitHookThread(LPVOID)
     
     // Initialize MinHook
     if (MH_Initialize() != MH_OK)
+    {
         return 1;
+    }
     
     // Create dummy device and swapchain to get vtable
     // Create a temporary window for the dummy swapchain
